@@ -1033,7 +1033,7 @@ namespace ts {
                 //  }
                 //
                 const propertyAssignments = getParametersWithPropertyAssignments(constructor);
-                addRange(statements, map(propertyAssignments, transformParameterWithPropertyAssignment));
+                addRange(statements, flatMap(propertyAssignments, transformParameterWithPropertyAssignment));
             }
             else if (isDerivedClass) {
                 // Add a synthetic `super` call:
@@ -1138,30 +1138,67 @@ namespace ts {
         function transformParameterWithPropertyAssignment(node: ParameterDeclaration) {
             Debug.assert(isIdentifier(node.name));
             const name = node.name as Identifier;
-            const propertyName = getMutableClone(name);
-            setEmitFlags(propertyName, EmitFlags.NoComments | EmitFlags.NoSourceMap);
 
-            const localName = getMutableClone(name);
-            setEmitFlags(localName, EmitFlags.NoComments);
+            let propertyAssignments = [];
+            if (isBindingPattern(name)) {
+                // TODO - what does the temp parameter do?
+                const declarations = flattenDestructuringBinding(
+                    node,
+                    visitor,
+                    context,
+                    FlattenLevel.All,
+                    // Do I need to include this?
+                );
 
-            return startOnNewLine(
-                setEmitFlags(
-                    setTextRange(
-                        createStatement(
-                            createAssignment(
-                                setTextRange(
-                                    createPropertyAccess(
-                                        createThis(),
-                                        propertyName
-                                    ),
-                                    node.name
-                                ),
-                                localName
-                            )
+                propertyAssignments = declarations.map((declaration) => {
+                    const name = declaration.name as Identifier;
+                    const propertyName = getMutableClone(name);
+                    setEmitFlags(propertyName, EmitFlags.NoComments | EmitFlags.NoSourceMap);
+
+                    const localName = getMutableClone(name);
+                    setEmitFlags(localName, EmitFlags.NoComments);
+
+                    return createAssignment(
+                        setTextRange(
+                            createPropertyAccess(
+                                createThis(),
+                                propertyName
+                            ),
+                            node.name
                         ),
-                        moveRangePos(node, -1)
-                    ),
-                    EmitFlags.NoComments
+                        localName
+                    );
+                });
+            } else {
+                const propertyName = getMutableClone(name);
+                setEmitFlags(propertyName, EmitFlags.NoComments | EmitFlags.NoSourceMap);
+
+                const localName = getMutableClone(name);
+                setEmitFlags(localName, EmitFlags.NoComments);
+
+                propertyAssignments = [
+                    createAssignment(
+                        setTextRange(
+                            createPropertyAccess(
+                                createThis(),
+                                propertyName
+                            ),
+                            node.name
+                        ),
+                        localName
+                    )
+                ]
+            }
+
+            return propertyAssignments.map((assignment) =>
+                startOnNewLine(
+                    setEmitFlags(
+                        setTextRange(
+                            createStatement(assignment),
+                            moveRangePos(node, -1)
+                        ),
+                        EmitFlags.NoComments
+                    )
                 )
             );
         }
